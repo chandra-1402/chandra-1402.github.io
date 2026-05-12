@@ -325,12 +325,10 @@ document.querySelectorAll('.team-btn').forEach(btn => {
         showAIThinking("Calculating points & filtering...");
         
         try {
-            const res = await fetch("http://127.0.0.1:5000/start", { 
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(initialData)
-            });
-            const data = await res.json();
+            // Wait a tiny bit to simulate network delay for effect
+            await new Promise(r => setTimeout(r, 600));
+            const data = window.startEngine(initialData);
+            
             sessionId = data.session_id;
             currentQuestionText = data.question;
             qCount = data.question_count; // Will be 4
@@ -340,7 +338,7 @@ document.querySelectorAll('.team-btn').forEach(btn => {
             loadQuestion();
         } catch(err) {
             console.error(err);
-            questionText.innerHTML = "Error connecting to AI Server. Please ensure app.py is running.";
+            questionText.innerHTML = "Error initializing AI Brain.";
             typingIndicator.style.display = 'none';
         }
     });
@@ -378,12 +376,8 @@ async function sendAnswer(ans) {
     typingIndicator.style.display = 'block';
     
     try {
-        const res = await fetch("http://127.0.0.1:5000/answer", {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session_id: sessionId, answer: ans })
-        });
-        const data = await res.json();
+        await new Promise(r => setTimeout(r, 500));
+        const data = window.answerEngine(ans);
         
         if (data.status === "asking") {
             currentQuestionText = data.question;
@@ -399,8 +393,6 @@ async function sendAnswer(ans) {
         }
     } catch(e) {
         console.error(e);
-        questionText.innerHTML = "Error connecting to AI Server.";
-        typingIndicator.style.display = 'none';
     }
 }
 
