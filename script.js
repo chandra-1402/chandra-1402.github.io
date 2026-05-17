@@ -477,7 +477,12 @@ function showResult(playerData) {
         // Reset validation UI
         document.getElementById('guess-validation').style.display = 'block';
         document.getElementById('play-again-container').style.display = 'none';
-        document.querySelector('.result-title').innerText = "IS THIS YOUR PLAYER?";
+        document.getElementById('learning-container').style.display = 'none';
+        
+        const resTitle = document.querySelector('.result-title');
+        resTitle.innerText = "IS THIS YOUR PLAYER?";
+        resTitle.style.color = "";
+        resTitle.style.textShadow = "";
         
         // Restore Recent Guesses title and content
         document.querySelector('.recent-guesses h3').innerText = "Recent Guesses";
@@ -533,9 +538,61 @@ document.getElementById('guess-no-btn').addEventListener('click', () => {
     document.querySelector('.result-title').style.textShadow = "0 0 10px rgba(213, 0, 249, 0.5)";
     
     document.getElementById('guess-validation').style.display = 'none';
-    document.getElementById('play-again-container').style.display = 'block';
-    showAIThinking("You win this round...", "Defeated");
+    
+    // Show learning container so user can teach the AI
+    const learnContainer = document.getElementById('learning-container');
+    if (learnContainer) {
+        learnContainer.style.display = 'block';
+        gsap.fromTo(learnContainer, {opacity: 0, y: 10}, {opacity: 1, y: 0, duration: 0.4});
+    } else {
+        document.getElementById('play-again-container').style.display = 'block';
+    }
+    
+    showAIThinking("You win this round... Teach me your player!", "Defeated");
 });
+
+// Wire up Learning Submission to Teach the AI
+const learnSubmitBtn = document.getElementById('learning-submit-btn');
+if (learnSubmitBtn) {
+    learnSubmitBtn.addEventListener('click', async () => {
+        const inputEl = document.getElementById('learning-input');
+        const correctPlayer = inputEl ? inputEl.value.trim() : "";
+        if (!correctPlayer) {
+            alert("Please enter the player's name!");
+            return;
+        }
+        
+        learnSubmitBtn.disabled = true;
+        const btnText = learnSubmitBtn.querySelector('span');
+        if (btnText) btnText.innerText = "TEACHING AI Brain...";
+        
+        try {
+            const res = await fetch("http://127.0.0.1:5001/learn", {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    session_id: sessionId,
+                    correct_player: correctPlayer
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showAIThinking("Got it! I will remember this player next time.", "Satisfied");
+                document.getElementById('learning-container').style.display = 'none';
+                document.getElementById('play-again-container').style.display = 'block';
+                if (inputEl) inputEl.value = "";
+            } else {
+                alert("Failed to teach AI. Please try again.");
+            }
+        } catch(e) {
+            console.error(e);
+            alert("Error communicating with AI learning system.");
+        } finally {
+            learnSubmitBtn.disabled = false;
+            if (btnText) btnText.innerText = "SUBMIT AND TEACH AI";
+        }
+    });
+}
 
 function createConfetti() {
     const container = document.querySelector('.confetti-container');
