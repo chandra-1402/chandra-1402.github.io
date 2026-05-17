@@ -2,6 +2,9 @@ import json
 import math
 import uuid
 import os
+import urllib.request
+import urllib.parse
+import re
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import math
@@ -20,7 +23,7 @@ with open("data.json", "r") as f:
     PLAYERS = json.load(f)
 
 # Define boolean features to maximize information gain
-FEATURES = {
+RAW_FEATURES = {
     "overseas": lambda p: p.get("overseas", False),
     "batter": lambda p: "Batsman" in p.get("role", ""),
     "bowler": lambda p: "Bowler" in p.get("role", ""),
@@ -51,6 +54,12 @@ FEATURES = {
     "lsg": lambda p: "LSG" in p.get("teams", []) or "RPS" in p.get("teams", []),
     "singleTeam": lambda p: len(p.get("teams", [])) == 1,
 }
+
+FEATURES = {}
+for k, func in RAW_FEATURES.items():
+    def make_feat(f, f_name):
+        return lambda p: p["learned_traits"][f_name] if "learned_traits" in p and f_name in p["learned_traits"] else f(p)
+    FEATURES[k] = make_feat(func, k)
 
 FEATURE_PROMPTS = {
     "overseas": "Is your player from outside India (overseas)?",
@@ -226,6 +235,10 @@ def answer():
     pool = session["pool"]
     curr_f = session["current_feature"]
     
+    if "history" not in session:
+        session["history"] = []
+    session["history"].append({"feature": curr_f, "answer": ans})
+    
     # Update scores instead of eliminating
     for item in pool:
         p = item["player"]
@@ -313,5 +326,78 @@ def answer():
         "top_candidates": top_candidates
     })
 
+@app.route("/learn", methods=["POST"])
+def learn():
+    data = request.get_json(silent=True) or {}
+    session_id = data.get("session_id")
+    correct_name = data.get("correct_player", "").strip()
+    
+    if not session_id or session_id not in sessions or not correct_name:
+        return jsonify({"success": False}), 400
+        
+    session = sessions[session_id]
+    history = session.get("history", [])
+    
+    # 1. Try to find the player
+    player_idx = next((i for i, p in enumerate(PLAYERS) if p["name"].lower() == correct_name.lower()), -1)
+    
+    if player_idx == -1:
+        # Create a new barebones player
+        new_player = {
+            "name": correct_name.title(),
+            "teams": [],
+            "role": "Unknown",
+            "country": "Unknown",
+            "learned_traits": {}
+        }
+        PLAYERS.append(new_player)
+        player_idx = len(PLAYERS) - 1
+        
+    # 2. Update their traits based on the history
+    player = PLAYERS[player_idx]
+    if "learned_traits" not in player:
+        player["learned_traits"] = {}
+        
+    for item in history:
+        feat = item["feature"]
+        ans = item["answer"]
+        if ans == "yes":
+            player["learned_traits"][feat] = True
+        elif ans == "no":
+            player["learned_traits"][feat] = False
+            
+    # 3. Save back to data.json
+    try:
+        with open("data.json", "w") as f:
+            json.dump(PLAYERS, f, indent=4)
+    except Exception as e:
+        print("Failed to save learning:", e)
+        
+    return jsonify({"success": True})
+
+@app.route("/get_image", methods=["GET"])
+def get_image():
+    name = request.args.get("name")
+    if not name:
+        return jsonify({"url": ""})
+        
+    query = urllib.parse.quote(name + " cricketer profile")
+    url = f"https://www.bing.com/images/search?q={query}"
+    
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        import ssl
+        context = ssl._create_unverified_context()
+        html = urllib.request.urlopen(req, context=context).read().decode('utf-8')
+        match = re.search(r'murl&quot;:&quot;(.*?)&quot;', html)
+        if match:
+            img_url = match.group(1)
+            return jsonify({"url": img_url})
+    except Exception as e:
+        print("Error fetching image for", name, e)
+        
+    fallback = f"https://ui-avatars.com/api/?name={urllib.parse.quote(name)}&background=101020&color=00F3FF&size=200"
+    return jsonify({"url": fallback})
+
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5001)

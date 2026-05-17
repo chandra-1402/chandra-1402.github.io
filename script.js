@@ -325,10 +325,12 @@ document.querySelectorAll('.team-btn').forEach(btn => {
         showAIThinking("Calculating points & filtering...");
         
         try {
-            // Wait a tiny bit to simulate network delay for effect
-            await new Promise(r => setTimeout(r, 600));
-            const data = window.startEngine(initialData);
-            
+            const res = await fetch("http://127.0.0.1:5001/start", { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(initialData)
+            });
+            const data = await res.json();
             sessionId = data.session_id;
             currentQuestionText = data.question;
             qCount = data.question_count; // Will be 4
@@ -338,7 +340,7 @@ document.querySelectorAll('.team-btn').forEach(btn => {
             loadQuestion();
         } catch(err) {
             console.error(err);
-            questionText.innerHTML = "Error initializing AI Brain.";
+            questionText.innerHTML = "Error connecting to AI Server. Please ensure app.py is running.";
             typingIndicator.style.display = 'none';
         }
     });
@@ -376,8 +378,12 @@ async function sendAnswer(ans) {
     typingIndicator.style.display = 'block';
     
     try {
-        await new Promise(r => setTimeout(r, 500));
-        const data = window.answerEngine(ans);
+        const res = await fetch("http://127.0.0.1:5001/answer", {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: sessionId, answer: ans })
+        });
+        const data = await res.json();
         
         if (data.status === "asking") {
             currentQuestionText = data.question;
@@ -393,6 +399,8 @@ async function sendAnswer(ans) {
         }
     } catch(e) {
         console.error(e);
+        questionText.innerHTML = "Error connecting to AI Server.";
+        typingIndicator.style.display = 'none';
     }
 }
 
@@ -419,12 +427,25 @@ optionsBtns.forEach(btn => {
 const resultCard = document.getElementById('result-card');
 const playAgainBtn = document.getElementById('play-again-btn');
 
+async function fetchPlayerImage(name) {
+    try {
+        const res = await fetch(`https://www.thesportsdb.com/api/v1/json/3/searchplayers.php?p=${encodeURIComponent(name)}`);
+        const data = await res.json();
+        if (data.player && data.player.length > 0 && data.player[0].strThumb) {
+            return data.player[0].strThumb;
+        }
+    } catch (e) {
+        console.error("Error fetching image:", e);
+    }
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=101020&color=00F3FF&size=200`;
+}
+
 function showResult(playerData) {
     typingIndicator.style.display = 'none';
     gsap.to(questionText, {opacity: 0, duration: 0.3});
     gsap.to(optionsBtns, {opacity: 0, duration: 0.3});
     
-    setTimeout(() => {
+    setTimeout(async () => {
         standardOptions.style.display = 'none';
         document.getElementById('result-card').classList.remove('hidden');
         
@@ -432,6 +453,26 @@ function showResult(playerData) {
         document.getElementById('guessed-name').innerText = playerData.name;
         document.getElementById('guessed-team').innerText = playerData.teams ? playerData.teams[0] : "Unknown";
         document.getElementById('guessed-role').innerText = playerData.role || "Unknown";
+        
+        const imgEl = document.getElementById('guessed-player-img');
+        const placeholder = document.getElementById('player-placeholder');
+        imgEl.style.display = 'none';
+        placeholder.style.display = 'flex';
+        
+        const imgSrc = await fetchPlayerImage(playerData.name);
+        imgEl.src = imgSrc;
+        
+        // Add error handler to fallback to UI avatar
+        imgEl.onerror = function() {
+            this.onerror = null;
+            this.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(playerData.name)}&background=101020&color=00F3FF&size=200`;
+        };
+
+        imgEl.onload = () => {
+            placeholder.style.display = 'none';
+            imgEl.style.display = 'block';
+            gsap.fromTo(imgEl, {scale: 0.5, opacity: 0}, {scale: 1, opacity: 1, duration: 0.5, ease: "back.out(1.5)"});
+        };
         
         // Reset validation UI
         document.getElementById('guess-validation').style.display = 'block';

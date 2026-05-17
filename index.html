@@ -4,6 +4,26 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>IPL Akinator | AI Cricket Mind Reader</title>
+    
+    <!-- Primary Meta Tags -->
+    <meta name="title" content="IPL Akinator | AI Cricket Mind Reader">
+    <meta name="description" content="Think of an IPL cricketer and the AI Genie will try to guess who it is! Test the ultimate artificial intelligence cricket mind reader.">
+    <meta name="keywords" content="IPL, Akinator, Cricket, AI, Guessing Game, T20, Indian Premier League">
+    <meta name="author" content="Chandan">
+    
+    <!-- Open Graph / Facebook / WhatsApp -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://ipl-akinator.com/">
+    <meta property="og:title" content="IPL Akinator | AI Cricket Mind Reader">
+    <meta property="og:description" content="Think of an IPL cricketer and the AI Genie will try to guess who it is! Play the ultimate cricket guessing game.">
+    <meta property="og:image" content="https://i.imgur.com/kPWe9oM.png">
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://ipl-akinator.com/">
+    <meta property="twitter:title" content="IPL Akinator | AI Cricket Mind Reader">
+    <meta property="twitter:description" content="Think of an IPL cricketer and the AI Genie will try to guess who it is! Play the ultimate cricket guessing game.">
+    <meta property="twitter:image" content="https://i.imgur.com/kPWe9oM.png">
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -189,11 +209,11 @@
                     <div class="result-card hidden" id="result-card">
                         <div class="confetti-container"></div>
                         <h2 class="result-title">I GUESSED IT!</h2>
-                        <div class="player-reveal-image">
+                        <div class="player-reveal-image" style="position: relative; display: flex; justify-content: center; align-items: center;">
                             <!-- Placeholder for actual player image -->
                             <div class="image-glow"></div>
-                            <img src="https://i.imgur.com/K1b5xGj.png" alt="Guessed Player" id="guessed-player-img" style="display:none;">
-                            <div class="player-placeholder"><i class="fa-solid fa-user-secret"></i></div>
+                            <img src="" alt="Guessed Player" id="guessed-player-img" style="display:none; border-radius: 50%; width: 150px; height: 150px; object-fit: cover; border: 3px solid var(--color-neon-blue); z-index: 2; position: relative;">
+                            <div class="player-placeholder" id="player-placeholder"><i class="fa-solid fa-user-secret"></i></div>
                         </div>
                         <h3 class="guessed-name" id="guessed-name">MS Dhoni</h3>
                         <div class="player-stats">
@@ -208,6 +228,16 @@
                                 </button>
                                 <button class="btn-primary" id="guess-no-btn" style="background: linear-gradient(135deg, #D50000, #FF1744);">
                                     <i class="fa-solid fa-xmark"></i> No
+                                </button>
+                            </div>
+                        </div>
+                        <div id="learning-container" style="display: none; margin-top: 20px;">
+                            <p style="margin-bottom: 10px; font-family: var(--font-accent); color: var(--color-pink-glow);">WHO WERE YOU THINKING OF?</p>
+                            <div style="display: flex; flex-direction: column; gap: 12px; align-items: center; width: 100%;">
+                                <input type="text" id="learning-input" placeholder="Enter full name (e.g., Rinku Singh)" style="width: 80%; max-width: 320px; padding: 12px 18px; border-radius: var(--radius-pill); border: 2px solid var(--color-pink-glow); background: rgba(0, 0, 0, 0.6); color: #fff; font-family: var(--font-body); text-align: center; font-size: 1rem; outline: none; transition: all 0.3s; box-shadow: 0 0 15px rgba(255, 64, 129, 0.2);">
+                                <button class="btn-primary" id="learning-submit-btn" style="background: linear-gradient(135deg, var(--color-purple), var(--color-wine)); width: 80%; max-width: 320px; font-size: 0.95rem; padding: 10px 25px;">
+                                    <span>SUBMIT AND TEACH AI</span>
+                                    <i class="fa-solid fa-brain"></i>
                                 </button>
                             </div>
                         </div>
@@ -254,7 +284,6 @@
     <!-- GSAP for advanced animations -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/TextPlugin.min.js"></script>
-    <script src="engine.js"></script>
     <script src="script.js"></script>
 </body>
 </html>
