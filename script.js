@@ -230,6 +230,391 @@ function showAIThinking(text) {
     }, 2500);
 }
 
+// --- Client-side Game Engine Fallback (for static environments like GitHub Pages) ---
+let useLocalEngine = false;
+let localPlayersPool = [];
+let localSession = {
+    pool: [],
+    asked: [],
+    questionCount: 0,
+    currentFeature: null,
+    history: []
+};
+
+const RAW_FEATURES = {
+    "overseas": p => p.overseas || false,
+    "batter": p => (p.role || "").includes("Batsman") || (p.role || "").includes("Batter"),
+    "bowler": p => (p.role || "").includes("Bowler"),
+    "keeper": p => p.keeper || false,
+    "allrounder": p => p.allrounder || false,
+    "pace": p => (p.pace || false) && !(p.allrounder || false),
+    "spin": p => (p.spin || false) && !(p.allrounder || false),
+    "leftBat": p => p.leftBat || false,
+    "captain": p => p.captain || false,
+    "finisher": p => p.finisher || false,
+    "aggressive": p => p.aggressive || false,
+    "legend": p => p.legend || false,
+    "has_title": p => (p.titles || 0) > 0,
+    "multi_titles": p => (p.titles || 0) >= 3,
+    "orangeCap": p => p.orangeCap || false,
+    "purpleCap": p => p.purpleCap || false,
+    "active": p => p.active || false,
+    "earlyEra": p => p.earlyEra || false,
+    "csk": p => (p.teams || []).includes("CSK"),
+    "mi": p => (p.teams || []).includes("MI"),
+    "rcb": p => (p.teams || []).includes("RCB"),
+    "kkr": p => (p.teams || []).includes("KKR"),
+    "rr": p => (p.teams || []).includes("RR"),
+    "srh": p => (p.teams || []).includes("SRH") || (p.teams || []).includes("DC"),
+    "pbks": p => (p.teams || []).includes("PBKS"),
+    "dc": p => ((p.teams || []).includes("DD") || (p.teams || []).includes("DC")) && !(p.teams || []).includes("SRH"),
+    "gt": p => (p.teams || []).includes("GT") || (p.teams || []).includes("GL"),
+    "lsg": p => (p.teams || []).includes("LSG") || (p.teams || []).includes("RPS"),
+    "singleTeam": p => (p.teams || []).length === 1
+};
+
+const FEATURE_PROMPTS = {
+    "overseas": "Is your player from outside India (overseas)?",
+    "batter": "Is your player primarily a batsman?",
+    "bowler": "Is your player primarily a pure bowler?",
+    "keeper": "Does your player regularly keep wickets?",
+    "allrounder": "Is your player a genuine all-rounder?",
+    "pace": "Is your player primarily a fast or medium pace bowler?",
+    "spin": "Is your player primarily a spin bowler?",
+    "leftBat": "Does your player bat left-handed?",
+    "captain": "Has your player ever captained an IPL franchise?",
+    "finisher": "Is your player known as a finisher in the death overs?",
+    "aggressive": "Is your player known for highly explosive, aggressive batting?",
+    "legend": "Is your player considered an all-time IPL legend?",
+    "has_title": "Has your player won at least one IPL championship?",
+    "multi_titles": "Has your player won 3 or more IPL titles?",
+    "orangeCap": "Has your player ever won the Orange Cap?",
+    "purpleCap": "Has your player ever won the Purple Cap?",
+    "active": "Is your player currently active in the IPL?",
+    "earlyEra": "Was your player prominent in the early years of the IPL (2008-2012)?",
+    "csk": "Has your player ever played for Chennai Super Kings (CSK)?",
+    "mi": "Has your player ever played for Mumbai Indians (MI)?",
+    "rcb": "Has your player ever played for Royal Challengers Bangalore (RCB)?",
+    "kkr": "Has your player ever played for Kolkata Knight Riders (KKR)?",
+    "rr": "Has your player ever played for Rajasthan Royals (RR)?",
+    "srh": "Has your player been associated with Sunrisers Hyderabad or Deccan Chargers?",
+    "pbks": "Has your player ever played for Punjab Kings (or KXIP)?",
+    "dc": "Has your player ever played for Delhi Capitals (or Daredevils)?",
+    "gt": "Has your player ever played for Gujarat Titans or Gujarat Lions?",
+    "lsg": "Has your player played for Lucknow Super Giants or Pune Supergiant?",
+    "singleTeam": "Has your player played for only ONE franchise their entire IPL career?"
+};
+
+function getFeatureValue(p, f_name) {
+    if (p.learned_traits && p.learned_traits[f_name] !== undefined) {
+        return p.learned_traits[f_name];
+    }
+    return RAW_FEATURES[f_name](p);
+}
+
+async function loadLocalPlayers() {
+    try {
+        const res = await fetch("data.json");
+        const basePlayers = await res.json();
+        
+        const customPlayers = JSON.parse(localStorage.getItem('iplAkinatorCustomPlayers')) || [];
+        localPlayersPool = [...basePlayers];
+        
+        const learnedTraitsMap = JSON.parse(localStorage.getItem('iplAkinatorLearnedTraits')) || {};
+        localPlayersPool.forEach(p => {
+            if (learnedTraitsMap[p.name.toLowerCase()]) {
+                p.learned_traits = { ...(p.learned_traits || {}), ...learnedTraitsMap[p.name.toLowerCase()] };
+            }
+        });
+        
+        customPlayers.forEach(cp => {
+            if (!localPlayersPool.some(p => p.name.toLowerCase() === cp.name.toLowerCase())) {
+                localPlayersPool.push(cp);
+            }
+        });
+        console.log(`Successfully loaded client-side database: ${localPlayersPool.length} players ready.`);
+    } catch(e) {
+        console.error("Failed to load local players pool:", e);
+    }
+}
+
+// Perform pre-load immediately on load
+window.addEventListener('DOMContentLoaded', loadLocalPlayers);
+
+function chooseBestLocalFeature(pool, asked) {
+    let bestF = null;
+    let minDiff = Infinity;
+    
+    const sortedPool = [...pool].sort((a, b) => b.score - a.score);
+    const topCandidates = sortedPool.slice(0, 20).map(x => x.player);
+    
+    const total = topCandidates.length;
+    if (total <= 1) {
+        const unasked = Object.keys(RAW_FEATURES).filter(f => !asked.includes(f));
+        if (unasked.length > 0) {
+            return unasked[Math.floor(Math.random() * unasked.length)];
+        }
+        return null;
+    }
+    
+    for (const fName in RAW_FEATURES) {
+        if (asked.includes(fName)) continue;
+        
+        let yesCount = 0;
+        topCandidates.forEach(p => {
+            if (getFeatureValue(p, fName)) yesCount++;
+        });
+        const noCount = total - yesCount;
+        const diff = Math.abs(yesCount - noCount);
+        
+        if (diff < minDiff && yesCount > 0 && noCount > 0) {
+            minDiff = diff;
+            bestF = fName;
+        }
+    }
+    
+    if (!bestF) {
+        const unasked = Object.keys(RAW_FEATURES).filter(f => !asked.includes(f));
+        if (unasked.length > 0) {
+            bestF = unasked[0];
+        }
+    }
+    
+    return bestF;
+}
+
+function getLocalTopSuspects(pool) {
+    const sortedPool = [...pool].sort((a, b) => b.score - a.score);
+    const top10 = sortedPool.slice(0, 10);
+    if (top10.length === 0) return [];
+    
+    const maxScore = top10[0].score;
+    const exps = top10.map(item => Math.exp(Math.max(-20, (item.score - maxScore) / 2.0)));
+    const sumExps = exps.reduce((a, b) => a + b, 0);
+    
+    let topCandidates = [];
+    for (let i = 0; i < Math.min(4, top10.length); i++) {
+        let prob = Math.round((exps[i] / sumExps) * 100);
+        if (prob === 0 && exps[i] > 0.0001) prob = 1;
+        topCandidates.push({ name: top10[i].player.name, prob: prob });
+    }
+    
+    const totalProb = topCandidates.reduce((sum, c) => sum + c.prob, 0);
+    if (topCandidates.length > 0 && totalProb < 100) {
+        topCandidates[0].prob += (100 - totalProb);
+    }
+    
+    return topCandidates;
+}
+
+function startLocalEngine(initialData) {
+    useLocalEngine = true;
+    console.log("Starting client-side Game Engine fallback...");
+    
+    let pool = localPlayersPool.map(p => ({ player: p, score: 0 }));
+    
+    const isIndian = initialData.is_indian;
+    if (isIndian !== null) {
+        pool.forEach(item => {
+            const pOverseas = item.player.overseas || false;
+            if (pOverseas !== isIndian) {
+                item.score += 10;
+            } else {
+                item.score -= 10;
+            }
+        });
+    }
+    
+    const role = initialData.role;
+    if (role) {
+        pool.forEach(item => {
+            const pRole = (item.player.role || "").toLowerCase();
+            const pAllrounder = item.player.allrounder || false;
+            const pKeeper = item.player.keeper || false;
+            
+            if (role === "batter" && pRole.includes("batsman")) {
+                item.score += 10;
+            } else if (role === "bowler" && pRole.includes("bowler")) {
+                item.score += 10;
+            } else if (role === "allrounder" && pAllrounder) {
+                item.score += 10;
+            } else if (role === "keeper" && pKeeper) {
+                item.score += 10;
+            } else {
+                item.score -= 5;
+            }
+        });
+    }
+    
+    const team = initialData.team;
+    if (team) {
+        pool.forEach(item => {
+            const pActive = item.player.active || false;
+            const pTeams = item.player.teams || [];
+            
+            if (team === "Not Playing") {
+                if (!pActive) {
+                    item.score += 10;
+                } else {
+                    item.score -= 10;
+                }
+            } else if (team !== "ALL") {
+                if (pActive && pTeams.includes(team)) {
+                    item.score += 10;
+                } else {
+                    item.score -= 10;
+                }
+            }
+        });
+    }
+    
+    localSession = {
+        pool: pool,
+        asked: ["overseas", "batter", "bowler", "keeper", "allrounder", "csk", "mi", "rcb", "kkr", "rr", "srh", "pbks", "dc", "gt", "lsg", "active"],
+        questionCount: 3,
+        history: []
+    };
+    
+    const firstFeature = chooseBestLocalFeature(localSession.pool, localSession.asked);
+    if (!firstFeature) {
+        showResult(pool[0].player);
+        return;
+    }
+    localSession.asked.push(firstFeature);
+    localSession.currentFeature = firstFeature;
+    
+    currentQuestionText = FEATURE_PROMPTS[firstFeature];
+    qCount = 4;
+    
+    const suspects = getLocalTopSuspects(localSession.pool);
+    updateTopCandidatesList(suspects);
+    
+    typingIndicator.style.display = 'none';
+    loadQuestion();
+}
+
+function answerLocalEngine(ans) {
+    const currF = localSession.currentFeature;
+    localSession.history.push({ feature: currF, answer: ans });
+    
+    localSession.pool.forEach(item => {
+        const hasFeature = getFeatureValue(item.player, currF);
+        if (ans === "yes") {
+            item.score += hasFeature ? 3 : -3;
+        } else if (ans === "no") {
+            item.score += !hasFeature ? 3 : -3;
+        } else if (ans === "probably") {
+            item.score += hasFeature ? 1 : -1;
+        } else if (ans === "probably_not") {
+            item.score += !hasFeature ? 1 : -1;
+        }
+    });
+    
+    localSession.questionCount++;
+    
+    const sortedPool = [...localSession.pool].sort((a, b) => b.score - a.score);
+    const topScore = sortedPool[0].score;
+    const runnerUpScore = sortedPool.length > 1 ? sortedPool[1].score : -999;
+    const scoreDiff = topScore - runnerUpScore;
+    
+    let confidence = 40;
+    if (scoreDiff >= 6) {
+        confidence = 90 + scoreDiff;
+    } else if (scoreDiff >= 4) {
+        confidence = 80;
+    } else if (scoreDiff >= 2) {
+        confidence = 60;
+    }
+    confidence = Math.min(99, confidence);
+    
+    if ((confidence >= 85 && localSession.questionCount >= 9) || localSession.questionCount >= 15) {
+        showResult(sortedPool[0].player);
+        return;
+    }
+    
+    let nextF = chooseBestLocalFeature(localSession.pool, localSession.asked);
+    
+    if (!nextF && localSession.questionCount < 9) {
+        const available = Object.keys(RAW_FEATURES).filter(f => !localSession.asked.includes(f));
+        if (available.length > 0) {
+            nextF = available[Math.floor(Math.random() * available.length)];
+        }
+    }
+    
+    if (!nextF) {
+        showResult(sortedPool[0].player);
+        return;
+    }
+    
+    localSession.asked.push(nextF);
+    localSession.currentFeature = nextF;
+    
+    currentQuestionText = FEATURE_PROMPTS[nextF];
+    qCount = localSession.questionCount + 1;
+    
+    const suspects = getLocalTopSuspects(localSession.pool);
+    updateTopCandidatesList(suspects);
+    
+    loadQuestion();
+}
+
+function learnLocalEngine(correctName) {
+    const history = localSession.history;
+    
+    let playerIdx = localPlayersPool.findIndex(p => p.name.toLowerCase() === correctName.toLowerCase());
+    
+    if (playerIdx === -1) {
+        const newPlayer = {
+            name: correctName.trim().replace(/\b\w/g, c => c.toUpperCase()),
+            teams: [],
+            role: "Unknown",
+            country: "Unknown",
+            learned_traits: {}
+        };
+        
+        history.forEach(item => {
+            const feat = item.feature;
+            const ans = item.answer;
+            if (ans === "yes") {
+                newPlayer.learned_traits[feat] = true;
+            } else if (ans === "no") {
+                newPlayer.learned_traits[feat] = false;
+            }
+        });
+        
+        localPlayersPool.push(newPlayer);
+        
+        const customPlayers = JSON.parse(localStorage.getItem('iplAkinatorCustomPlayers')) || [];
+        customPlayers.push(newPlayer);
+        localStorage.setItem('iplAkinatorCustomPlayers', JSON.stringify(customPlayers));
+    } else {
+        const player = localPlayersPool[playerIdx];
+        if (!player.learned_traits) player.learned_traits = {};
+        
+        const learnedTraitsMap = JSON.parse(localStorage.getItem('iplAkinatorLearnedTraits')) || {};
+        const pNameLower = player.name.toLowerCase();
+        if (!learnedTraitsMap[pNameLower]) learnedTraitsMap[pNameLower] = {};
+        
+        history.forEach(item => {
+            const feat = item.feature;
+            const ans = item.answer;
+            if (ans === "yes") {
+                player.learned_traits[feat] = true;
+                learnedTraitsMap[pNameLower][feat] = true;
+            } else if (ans === "no") {
+                player.learned_traits[feat] = false;
+                learnedTraitsMap[pNameLower][feat] = false;
+            }
+        });
+        
+        localStorage.setItem('iplAkinatorLearnedTraits', JSON.stringify(learnedTraitsMap));
+    }
+    
+    showAIThinking("Got it! I will remember this player next time.", "Satisfied");
+    document.getElementById('learning-container').style.display = 'none';
+    document.getElementById('play-again-container').style.display = 'block';
+}
+
 let initialData = {
     is_indian: null,
     role: null,
@@ -237,6 +622,7 @@ let initialData = {
 };
 
 async function startGameLogic() {
+    useLocalEngine = false; // Reset to try server first
     qNum.innerText = 1;
     questionText.innerHTML = '';
     standardOptions.style.display = 'none';
@@ -339,9 +725,8 @@ document.querySelectorAll('.team-btn').forEach(btn => {
             }
             loadQuestion();
         } catch(err) {
-            console.error(err);
-            questionText.innerHTML = "Error connecting to AI Server. Please ensure app.py is running.";
-            typingIndicator.style.display = 'none';
+            console.error("Failed to connect to local app.py. Falling back to local engine...", err);
+            startLocalEngine(initialData);
         }
     });
 });
@@ -373,6 +758,11 @@ function loadQuestion() {
 }
 
 async function sendAnswer(ans) {
+    if (useLocalEngine) {
+        answerLocalEngine(ans);
+        return;
+    }
+    
     gsap.to(optionsBtns, {opacity: 0, y: 20, duration: 0.2});
     questionText.innerHTML = '';
     typingIndicator.style.display = 'block';
@@ -398,9 +788,8 @@ async function sendAnswer(ans) {
             showResult(null); // failed
         }
     } catch(e) {
-        console.error(e);
-        questionText.innerHTML = "Error connecting to AI Server.";
-        typingIndicator.style.display = 'none';
+        console.error("Server answer API failed. Falling back to local engine mid-game...", e);
+        startLocalEngine(initialData);
     }
 }
 
@@ -567,6 +956,11 @@ if (learnSubmitBtn) {
         if (btnText) btnText.innerText = "TEACHING AI Brain...";
         
         try {
+            if (useLocalEngine) {
+                learnLocalEngine(correctPlayer);
+                return;
+            }
+            
             const res = await fetch("http://127.0.0.1:5001/learn", {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
